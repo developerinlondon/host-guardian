@@ -182,11 +182,28 @@ impl Gate {
     }
 }
 
-fn write_incident(dir: &Path, now: u64, event: &str, payload: &serde_json::Value) {
-    let slug: String = event
+/// Filename-safe rendering of an event key, with a digest so distinct keys
+/// cannot share a file.
+///
+/// Sanitising alone collides: `mount:/srv/data` and `mount:/srv-data` both
+/// flatten to the same name, and one incident would silently overwrite the
+/// other. The digest is for disambiguation, not security.
+fn incident_slug(event: &str) -> String {
+    let safe: String = event
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .take(96)
         .collect();
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in event.as_bytes() {
+        hash ^= u64::from(*b);
+        hash = hash.wrapping_mul(0x1000_0000_01b3);
+    }
+    format!("{safe}-{hash:016x}")
+}
+
+fn write_incident(dir: &Path, now: u64, event: &str, payload: &serde_json::Value) {
+    let slug = incident_slug(event);
     let path = dir.join(format!("{now}-{slug}.json"));
     let body = serde_json::to_string_pretty(payload).unwrap_or_else(|_| "{}".into());
     if let Err(e) = write_atomic(&path, &format!("{body}\n"), 0o600) {
@@ -203,6 +220,14 @@ enum Mode {
     Live,
 }
 
+/// The two side effects, bundled so they can be swapped in tests. Injecting the
+/// stop is what makes it impossible for a test to stop a unit on the machine
+/// running it.
+struct Effects<'a> {
+    record: &'a mut dyn FnMut(&str, serde_json::Value),
+    stop: &'a mut dyn FnMut(&str) -> Result<(), String>,
+}
+
 /// Acts on a gated memory emergency and records what happened.
 ///
 /// Split out of `run_once` so the reporting rules stay legible: one record when
@@ -216,13 +241,13 @@ fn handle_emergency(
     emergency: Gated,
     now: u64,
     mono: u64,
-    record: &mut dyn FnMut(&str, serde_json::Value),
+    fx: &mut Effects,
 ) {
     if !emergency.active() {
         return;
     }
     if emergency == Gated::Newly {
-        record(
+        (fx.record)(
             "memory-emergency",
             serde_json::json!({
                 "event": "memory_emergency_began",
@@ -240,11 +265,11 @@ fn handle_emergency(
         if budget.admit(unit, mono, &cfg.actions, cfg.observe_only) != Decision::Shed {
             continue;
         }
-        let result = match systemd::stop(unit, Duration::from_secs(2)) {
+        let result = match (fx.stop)(unit) {
             Ok(()) => "shed".to_string(),
             Err(e) => format!("failed: {e}"),
         };
-        record(
+        (fx.record)(
             // The unit is part of the name: two units shed within one wall
             // second would otherwise rename onto the same path, leaving a
             // record that names only the last.
@@ -300,7 +325,19 @@ fn run_once(
         let mut record = |slug: &str, payload: serde_json::Value| {
             write_incident(&dir, now, slug, &payload);
         };
-        handle_emergency(cfg, budget, &ev, emergency, now, mono, &mut record);
+        let mut stop = |unit: &str| systemd::stop(unit, Duration::from_secs(2));
+        handle_emergency(
+            cfg,
+            budget,
+            &ev,
+            emergency,
+            now,
+            mono,
+            &mut Effects {
+                record: &mut record,
+                stop: &mut stop,
+            },
+        );
     }
 
     metrics::render(&metrics::Snapshot {
@@ -465,6 +502,43 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct Recorded {
+        slugs: Vec<String>,
+        stopped: Vec<String>,
+    }
+
+    /// Drives one emergency cycle with both side effects captured. The stop is
+    /// injected so a test can never stop a unit on the machine running it.
+    fn drive(
+        cfg: &config::Config,
+        budget: &mut Budget,
+        ev: &Evaluation,
+        gated: Gated,
+        t: u64,
+        out: &mut Recorded,
+    ) {
+        // Destructured so the two closures borrow disjoint fields.
+        let Recorded { slugs, stopped } = out;
+        let mut record = |slug: &str, _p: serde_json::Value| slugs.push(slug.to_string());
+        let mut stop = |u: &str| {
+            stopped.push(u.to_string());
+            Ok(())
+        };
+        handle_emergency(
+            cfg,
+            budget,
+            ev,
+            gated,
+            t,
+            t,
+            &mut Effects {
+                record: &mut record,
+                stop: &mut stop,
+            },
+        );
+    }
+
     /// The bug this exists to prevent: a sustained emergency recorded one file
     /// per unit per cycle, so an armed PSI trigger could write ~1,800 an hour
     /// into /var/log while the host was already short of memory.
@@ -473,24 +547,13 @@ mod tests {
         let cfg = emergency_cfg(true);
         let ev = emergency_ev();
         let mut budget = Budget::new();
-        let mut slugs: Vec<String> = Vec::new();
-        {
-            let mut record = |slug: &str, _p: serde_json::Value| slugs.push(slug.to_string());
-            handle_emergency(&cfg, &mut budget, &ev, Gated::Newly, 0, 0, &mut record);
-            for cycle in 1..20 {
-                handle_emergency(
-                    &cfg,
-                    &mut budget,
-                    &ev,
-                    Gated::Still,
-                    cycle,
-                    cycle,
-                    &mut record,
-                );
-            }
+        let mut out = Recorded::default();
+        drive(&cfg, &mut budget, &ev, Gated::Newly, 0, &mut out);
+        for cycle in 1..20 {
+            drive(&cfg, &mut budget, &ev, Gated::Still, cycle, &mut out);
         }
         assert_eq!(
-            slugs,
+            out.slugs,
             ["memory-emergency"],
             "observe-only recorded more than the onset over 20 cycles"
         );
@@ -501,16 +564,40 @@ mod tests {
         let cfg = emergency_cfg(false);
         let ev = emergency_ev();
         let mut budget = Budget::new();
-        let mut slugs: Vec<String> = Vec::new();
-        {
-            // Not Live, so systemd is never invoked; admit still runs and the
-            // decision is what selects the record.
-            let mut record = |slug: &str, _p: serde_json::Value| slugs.push(slug.to_string());
-            handle_emergency(&cfg, &mut budget, &ev, Gated::Newly, 0, 0, &mut record);
-        }
-        let shed: Vec<&String> = slugs.iter().filter(|s| s.contains(".service")).collect();
-        assert_eq!(shed.len(), 2, "got {slugs:?}");
+        let mut out = Recorded::default();
+        drive(&cfg, &mut budget, &ev, Gated::Newly, 0, &mut out);
+
+        assert_eq!(out.stopped.len(), 2, "expected both units shed");
+        let shed: Vec<&String> = out.slugs.iter().filter(|s| s.contains("service")).collect();
+        assert_eq!(shed.len(), 2, "got {:?}", out.slugs);
         assert_ne!(shed[0], shed[1], "two units shared one record name");
+    }
+
+    #[test]
+    fn distinct_events_never_share_an_incident_filename() {
+        // Sanitising alone flattens these onto one name, so one incident would
+        // silently overwrite the other.
+        let collide = [
+            ("mount:/srv/data", "mount:/srv-data"),
+            (
+                "memory-emergency-foo-bar.service",
+                "memory-emergency-foo.bar.service",
+            ),
+        ];
+        for (a, b) in collide {
+            assert_ne!(incident_slug(a), incident_slug(b), "{a} and {b} collided");
+        }
+    }
+
+    #[test]
+    fn incident_slug_is_stable_and_filename_safe() {
+        let s = incident_slug("mount:/srv/data");
+        assert_eq!(s, incident_slug("mount:/srv/data"), "not deterministic");
+        assert!(
+            s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'),
+            "unsafe filename: {s}"
+        );
+        assert!(s.len() < 120, "unbounded slug length");
     }
 
     #[test]
@@ -518,12 +605,10 @@ mod tests {
         let cfg = emergency_cfg(true);
         let ev = emergency_ev();
         let mut budget = Budget::new();
-        let mut count = 0;
-        {
-            let mut record = |_s: &str, _p: serde_json::Value| count += 1;
-            handle_emergency(&cfg, &mut budget, &ev, Gated::No, 0, 0, &mut record);
-        }
-        assert_eq!(count, 0);
+        let mut out = Recorded::default();
+        drive(&cfg, &mut budget, &ev, Gated::No, 0, &mut out);
+        assert!(out.slugs.is_empty());
+        assert!(out.stopped.is_empty(), "stopped a unit with no emergency");
     }
 
     #[test]
