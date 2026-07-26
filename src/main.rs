@@ -407,7 +407,7 @@ fn main() -> ExitCode {
     match &trigger {
         Ok(_) => eprintln!("host-guardian: armed PSI trigger on {PSI_MEMORY}"),
         Err(e) => {
-            eprintln!("host-guardian: PSI trigger unavailable ({e}); polling every {interval:?}")
+            eprintln!("host-guardian: PSI trigger unavailable ({e}); polling every {interval:?}");
         }
     }
 
