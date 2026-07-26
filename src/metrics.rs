@@ -1,7 +1,7 @@
 //! Prometheus textfile output.
 //!
 //! This is the only publication channel: node-exporter's textfile collector
-//! picks the file up, so hostguard never listens on a socket and needs no
+//! picks the file up, so host-guardian never listens on a socket and needs no
 //! scrape target of its own.
 
 use crate::mounts::MountVerdict;
@@ -42,69 +42,85 @@ pub fn render(s: &Snapshot) -> String {
 
     let _ = writeln!(
         out,
-        "# HELP hostguard_up Whether the last evaluation completed without errors."
+        "# HELP host_guardian_up Whether the last evaluation completed without errors."
     );
-    let _ = writeln!(out, "# TYPE hostguard_up gauge");
-    let _ = writeln!(out, "hostguard_up {}", u8::from(s.up));
+    let _ = writeln!(out, "# TYPE host_guardian_up gauge");
+    let _ = writeln!(out, "host_guardian_up {}", u8::from(s.up));
 
-    let _ = writeln!(out, "# TYPE hostguard_observe_only gauge");
-    let _ = writeln!(out, "hostguard_observe_only {}", u8::from(s.observe_only));
-
-    let _ = writeln!(out, "# TYPE hostguard_last_run_timestamp_seconds gauge");
-    let _ = writeln!(out, "hostguard_last_run_timestamp_seconds {}", s.timestamp);
-
-    let _ = writeln!(out, "# TYPE hostguard_errors gauge");
-    let _ = writeln!(out, "hostguard_errors {}", s.errors);
-
-    let _ = writeln!(out, "# TYPE hostguard_memory_available_bytes gauge");
+    let _ = writeln!(out, "# TYPE host_guardian_observe_only gauge");
     let _ = writeln!(
         out,
-        "hostguard_memory_available_bytes {}",
+        "host_guardian_observe_only {}",
+        u8::from(s.observe_only)
+    );
+
+    let _ = writeln!(out, "# TYPE host_guardian_last_run_timestamp_seconds gauge");
+    let _ = writeln!(
+        out,
+        "host_guardian_last_run_timestamp_seconds {}",
+        s.timestamp
+    );
+
+    let _ = writeln!(out, "# TYPE host_guardian_errors gauge");
+    let _ = writeln!(out, "host_guardian_errors {}", s.errors);
+
+    let _ = writeln!(out, "# TYPE host_guardian_memory_available_bytes gauge");
+    let _ = writeln!(
+        out,
+        "host_guardian_memory_available_bytes {}",
         s.available_bytes
     );
 
-    let _ = writeln!(out, "# TYPE hostguard_memory_full_psi_percent gauge");
+    let _ = writeln!(out, "# TYPE host_guardian_memory_full_psi_percent gauge");
     let _ = writeln!(
         out,
-        "hostguard_memory_full_psi_percent {:.6}",
+        "host_guardian_memory_full_psi_percent {:.6}",
         s.full_psi_percent
     );
 
-    let _ = writeln!(out, "# TYPE hostguard_memory_emergency gauge");
+    let _ = writeln!(out, "# TYPE host_guardian_memory_emergency gauge");
     let _ = writeln!(
         out,
-        "hostguard_memory_emergency {}",
+        "host_guardian_memory_emergency {}",
         u8::from(s.emergency_active)
     );
 
-    let _ = writeln!(out, "# TYPE hostguard_actions_in_window gauge");
-    let _ = writeln!(out, "hostguard_actions_in_window {}", s.actions_in_window);
+    let _ = writeln!(out, "# TYPE host_guardian_actions_in_window gauge");
+    let _ = writeln!(
+        out,
+        "host_guardian_actions_in_window {}",
+        s.actions_in_window
+    );
 
     let _ = writeln!(
         out,
-        "# HELP hostguard_mount_ok Whether a mount matches its expected identity."
+        "# HELP host_guardian_mount_ok Whether a mount matches its expected identity."
     );
-    let _ = writeln!(out, "# TYPE hostguard_mount_ok gauge");
+    let _ = writeln!(out, "# TYPE host_guardian_mount_ok gauge");
     for (path, verdict) in s.mounts {
         let ok = u8::from(matches!(verdict, MountVerdict::Ok));
-        let _ = writeln!(out, "hostguard_mount_ok{{path=\"{}\"}} {ok}", escape(path));
-    }
-
-    let _ = writeln!(out, "# TYPE hostguard_mount_present gauge");
-    for (path, verdict) in s.mounts {
-        let present = u8::from(!matches!(verdict, MountVerdict::Missing));
         let _ = writeln!(
             out,
-            "hostguard_mount_present{{path=\"{}\"}} {present}",
+            "host_guardian_mount_ok{{path=\"{}\"}} {ok}",
             escape(path)
         );
     }
 
-    let _ = writeln!(out, "# TYPE hostguard_unit_active gauge");
+    let _ = writeln!(out, "# TYPE host_guardian_mount_present gauge");
+    for (path, verdict) in s.mounts {
+        let present = u8::from(!matches!(verdict, MountVerdict::Missing));
+        let _ = writeln!(
+            out,
+            "host_guardian_mount_present{{path=\"{}\"}} {present}",
+            escape(path)
+        );
+    }
+
+    let _ = writeln!(out, "# TYPE host_guardian_unit_active gauge");
     for (unit, active) in s.unit_active {
         let _ = writeln!(
             out,
-            "hostguard_unit_active{{unit=\"{}\"}} {}",
+            "host_guardian_unit_active{{unit=\"{}\"}} {}",
             escape(unit),
             u8::from(*active)
         );
@@ -162,16 +178,16 @@ mod tests {
             },
         )];
         let out = snapshot(&mounts, &[]);
-        assert!(out.contains("hostguard_mount_ok{path=\"/tmp\"} 0"));
-        assert!(out.contains("hostguard_mount_present{path=\"/tmp\"} 1"));
+        assert!(out.contains("host_guardian_mount_ok{path=\"/tmp\"} 0"));
+        assert!(out.contains("host_guardian_mount_present{path=\"/tmp\"} 1"));
     }
 
     #[test]
     fn missing_mount_reports_absent_and_not_ok() {
         let mounts = vec![("/data".to_string(), MountVerdict::Missing)];
         let out = snapshot(&mounts, &[]);
-        assert!(out.contains("hostguard_mount_ok{path=\"/data\"} 0"));
-        assert!(out.contains("hostguard_mount_present{path=\"/data\"} 0"));
+        assert!(out.contains("host_guardian_mount_ok{path=\"/data\"} 0"));
+        assert!(out.contains("host_guardian_mount_present{path=\"/data\"} 0"));
     }
 
     #[test]
@@ -180,7 +196,7 @@ mod tests {
         let out = snapshot(&mounts, &[]);
         let line = out
             .lines()
-            .find(|l| l.starts_with("hostguard_mount_ok{"))
+            .find(|l| l.starts_with("host_guardian_mount_ok{"))
             .unwrap();
         assert!(line.contains(r#"\""#), "quote not escaped: {line}");
         assert!(line.contains(r"\\"), "backslash not escaped: {line}");
@@ -190,7 +206,7 @@ mod tests {
     #[test]
     fn empty_mount_and_unit_lists_still_render_valid_output() {
         let out = snapshot(&[], &[]);
-        assert!(out.contains("hostguard_up 1"));
+        assert!(out.contains("host_guardian_up 1"));
         assert!(out.ends_with('\n'));
     }
 }

@@ -1,4 +1,4 @@
-hostguard (0.1.0) unstable; urgency=medium
+host-guardian (0.1.0) unstable; urgency=medium
 
   * Initial release.
   * Mount identity verification against /proc/self/mountinfo.

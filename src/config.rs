@@ -127,8 +127,8 @@ mod tests {
     fn base() -> serde_json::Value {
         serde_json::json!({
             "schema_version": 1,
-            "metrics_path": "/var/lib/hostguard/textfile/hostguard.prom",
-            "incident_dir": "/var/log/hostguard/incidents",
+            "metrics_path": "/var/lib/host-guardian/textfile/host-guardian.prom",
+            "incident_dir": "/var/log/host-guardian/incidents",
             "memory": { "available_bytes": 8_589_934_592_u64, "full_psi_percent": 10.0 },
             "shed_units": ["code-server.service"],
             "mount_expectations": [

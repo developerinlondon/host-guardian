@@ -1,11 +1,11 @@
 [package]
-name = "hostguard"
+name = "host-guardian"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.82"
 description = "Host health guardian: verifies mount identity and sheds named units under memory pressure"
 license = "MIT"
-repository = "https://github.com/developerinlondon/hostguard"
+repository = "https://github.com/developerinlondon/host-guardian"
 readme = "README.md"
 categories = ["command-line-utilities"]
 keywords = ["systemd", "psi", "monitoring", "linux"]

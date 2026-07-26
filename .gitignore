@@ -5,3 +5,6 @@
 # Machine-local build overrides. The target-dir pin some of us need is specific
 # to one host's disk layout and would break CI and every other checkout.
 /.cargo/config.toml
+
+# Local review-gate state, not project content.
+/.agentkit

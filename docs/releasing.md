@@ -48,11 +48,11 @@ repository always reflects what is actually downloadable.
 docker run --rm -it ubuntu:24.04 bash -c '
   apt-get update -qq && apt-get install -y -qq curl ca-certificates
   install -d -m 0755 /etc/apt/keyrings
-  curl -fsSL https://developerinlondon.github.io/hostguard/hostguard.gpg \
-    > /etc/apt/keyrings/hostguard.gpg
-  echo "deb [signed-by=/etc/apt/keyrings/hostguard.gpg] https://developerinlondon.github.io/hostguard stable main" \
-    > /etc/apt/sources.list.d/hostguard.list
-  apt-get update && apt-get install -y hostguard && hostguard --version'
+  curl -fsSL https://developerinlondon.github.io/host-guardian/host-guardian.gpg \
+    > /etc/apt/keyrings/host-guardian.gpg
+  echo "deb [signed-by=/etc/apt/keyrings/host-guardian.gpg] https://developerinlondon.github.io/host-guardian stable main" \
+    > /etc/apt/sources.list.d/host-guardian.list
+  apt-get update && apt-get install -y host-guardian && host-guardian --version'
 ```
 
 If the signature is wrong or missing, `apt-get update` fails here rather than on

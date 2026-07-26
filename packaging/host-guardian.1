@@ -1,13 +1,13 @@
-.TH HOSTGUARD 1 "2026-07-26" "hostguard" "System Administration"
+.TH HOST-GUARDIAN 1 "2026-07-26" "host-guardian" "System Administration"
 .SH NAME
-hostguard \- verify mount identity and shed named units under memory pressure
+host-guardian \- verify mount identity and shed named units under memory pressure
 .SH SYNOPSIS
-.B hostguard
+.B host-guardian
 .RB [ \-\-config
 .IR PATH ]
 .RB [ \-\-once ]
 .SH DESCRIPTION
-.B hostguard
+.B host-guardian
 checks that each declared mountpoint is still backed by the filesystem it is
 supposed to be, and stops operator-nominated units when the host is genuinely
 out of memory.
@@ -19,20 +19,20 @@ restarting a unit that failed is systemd's own
 .B Restart=
 directive; killing by cgroup pressure is
 .BR systemd\-oomd (8).
-.B hostguard
+.B host-guardian
 implements only what none of those cover: verifying a mount is still the
 filesystem you declared, and shedding a
 .I named
 unit rather than whichever cgroup happens to be under the most pressure.
 .PP
 Results are published as a Prometheus textfile for node-exporter to collect, so
-.B hostguard
+.B host-guardian
 listens on no socket.
 .SH OPTIONS
 .TP
 .BI \-\-config " PATH"
 Configuration file. Default
-.IR /etc/hostguard/config.json .
+.IR /etc/host-guardian/config.json .
 .TP
 .B \-\-once
 Evaluate once, print the metrics to standard output and exit. Does not act.
@@ -51,19 +51,19 @@ The configuration could not be read or is invalid.
 A command-line argument was not recognised.
 .SH FILES
 .TP
-.I /etc/hostguard/config.json
+.I /etc/host-guardian/config.json
 Configuration. Thresholds, shed units and mount expectations.
 .TP
-.I /var/lib/hostguard/textfile/hostguard.prom
+.I /var/lib/host-guardian/textfile/host-guardian.prom
 Prometheus textfile output.
 .TP
-.I /var/log/hostguard/incidents
+.I /var/log/host-guardian/incidents
 One JSON record when a condition first crosses its sample gate, and one per
 action actually taken. A condition that persists is not re-recorded, and a
 suppressed action is not recorded at all \- those are visible in
-.IR hostguard_actions_in_window .
+.IR host_guardian_actions_in_window .
 Aged out after 30 days by
-.IR /usr/lib/tmpfiles.d/hostguard.conf .
+.IR /usr/lib/tmpfiles.d/host-guardian.conf .
 .SH SAFETY
 An emergency requires both low available memory
 .I and
@@ -82,4 +82,4 @@ configuration file cannot become arbitrary root execution.
 .BR tmpfiles.d (5),
 .BR proc (5)
 .PP
-https://github.com/developerinlondon/hostguard
+https://github.com/developerinlondon/host-guardian

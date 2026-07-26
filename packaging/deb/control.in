@@ -1,23 +1,23 @@
-Package: hostguard
+Package: host-guardian
 Version: @VERSION@
 Section: admin
 Priority: optional
 Architecture: @ARCH@
 Maintainer: Nayeem Syed <developerinlondon@gmail.com>
-Homepage: https://github.com/developerinlondon/hostguard
+Homepage: https://github.com/developerinlondon/host-guardian
 Depends: @SHLIBS@systemd (>= 249)
 Recommends: systemd-oomd, prometheus-node-exporter
 Description: Host health guardian for mount identity and memory shedding
- hostguard verifies that each declared mountpoint is still backed by the
+ host-guardian verifies that each declared mountpoint is still backed by the
  filesystem it is supposed to be, and stops operator-nominated units when the
  host is genuinely out of memory.
  .
  It is deliberately small. Memory, CPU, IO, load and filesystem metrics come
  from prometheus-node-exporter; restarting a failed unit is systemd's own
- Restart= directive; killing by cgroup pressure is systemd-oomd. hostguard
+ Restart= directive; killing by cgroup pressure is systemd-oomd. host-guardian
  implements only what none of those cover: verifying that a mount is still the
  filesystem you declared, and shedding a *named* unit rather than whichever
  cgroup happens to be under the most pressure.
  .
  Results are published as a Prometheus textfile for node-exporter to collect,
- so hostguard listens on no socket.
+ so host-guardian listens on no socket.
