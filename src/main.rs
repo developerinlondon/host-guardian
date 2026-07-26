@@ -203,6 +203,64 @@ enum Mode {
     Live,
 }
 
+/// Acts on a gated memory emergency and records what happened.
+///
+/// Split out of `run_once` so the reporting rules stay legible: one record when
+/// the emergency starts, and one per action actually taken. A suppression is
+/// the steady state during a sustained emergency, so recording those would fill
+/// /var/log precisely when the host is already in trouble.
+fn handle_emergency(
+    cfg: &config::Config,
+    budget: &mut Budget,
+    ev: &Evaluation,
+    emergency: Gated,
+    now: u64,
+    mono: u64,
+    record: &mut dyn FnMut(&str, serde_json::Value),
+) {
+    if !emergency.active() {
+        return;
+    }
+    if emergency == Gated::Newly {
+        record(
+            "memory-emergency",
+            serde_json::json!({
+                "event": "memory_emergency_began",
+                "available_bytes": ev.pressure.available_bytes,
+                "full_psi_percent": ev.pressure.full_avg10_percent,
+                "timestamp": now,
+            }),
+        );
+    }
+
+    for (unit, active) in &ev.unit_active {
+        if !active {
+            continue;
+        }
+        if budget.admit(unit, mono, &cfg.actions, cfg.observe_only) != Decision::Shed {
+            continue;
+        }
+        let result = match systemd::stop(unit, Duration::from_secs(2)) {
+            Ok(()) => "shed".to_string(),
+            Err(e) => format!("failed: {e}"),
+        };
+        record(
+            // The unit is part of the name: two units shed within one wall
+            // second would otherwise rename onto the same path, leaving a
+            // record that names only the last.
+            &format!("memory-emergency-{unit}"),
+            serde_json::json!({
+                "event": "memory_emergency_shed",
+                "unit": unit,
+                "result": result,
+                "available_bytes": ev.pressure.available_bytes,
+                "full_psi_percent": ev.pressure.full_avg10_percent,
+                "timestamp": now,
+            }),
+        );
+    }
+}
+
 fn run_once(
     cfg: &config::Config,
     gate: &mut Gate,
@@ -237,33 +295,12 @@ fn run_once(
         }
     }
 
-    if emergency.active() && mode == Mode::Live {
-        for (unit, active) in &ev.unit_active {
-            if !active {
-                continue;
-            }
-            let decision = budget.admit(unit, mono, &cfg.actions, cfg.observe_only);
-            let result = match decision {
-                Decision::Shed => match systemd::stop(unit, Duration::from_secs(2)) {
-                    Ok(()) => "shed".to_string(),
-                    Err(e) => format!("failed: {e}"),
-                },
-                other => format!("{other:?}"),
-            };
-            write_incident(
-                &cfg.incident_dir,
-                now,
-                "memory-emergency",
-                &serde_json::json!({
-                    "event": "memory_emergency",
-                    "unit": unit,
-                    "result": result,
-                    "available_bytes": ev.pressure.available_bytes,
-                    "full_psi_percent": ev.pressure.full_avg10_percent,
-                    "timestamp": now,
-                }),
-            );
-        }
+    if mode == Mode::Live {
+        let dir = cfg.incident_dir.clone();
+        let mut record = |slug: &str, payload: serde_json::Value| {
+            write_incident(&dir, now, slug, &payload);
+        };
+        handle_emergency(cfg, budget, &ev, emergency, now, mono, &mut record);
     }
 
     metrics::render(&metrics::Snapshot {
@@ -398,6 +435,95 @@ mod tests {
         let mut g = Gate::default();
         assert_eq!(g.observe("a", true, 1), Gated::Newly);
         assert_eq!(g.observe("b", true, 1), Gated::Newly);
+    }
+
+    fn emergency_cfg(observe_only: bool) -> config::Config {
+        let json = serde_json::json!({
+            "schema_version": 1,
+            "observe_only": observe_only,
+            "metrics_path": "/var/lib/hostguard/textfile/hostguard.prom",
+            "incident_dir": "/var/log/hostguard/incidents",
+            "memory": { "available_bytes": 8_589_934_592_u64, "full_psi_percent": 10.0 },
+            "shed_units": ["a.service", "b.service"],
+            "mount_expectations": [],
+            "actions": {
+                "cooldown_sec": 600, "budget_window_sec": 3600, "max_actions_per_window": 3
+            }
+        });
+        config::parse(&json.to_string()).unwrap()
+    }
+
+    fn emergency_ev() -> Evaluation {
+        Evaluation {
+            pressure: Pressure {
+                available_bytes: 1024,
+                full_avg10_percent: 99.0,
+            },
+            mounts: Vec::new(),
+            unit_active: vec![("a.service".into(), true), ("b.service".into(), true)],
+            errors: Vec::new(),
+        }
+    }
+
+    /// The bug this exists to prevent: a sustained emergency recorded one file
+    /// per unit per cycle, so an armed PSI trigger could write ~1,800 an hour
+    /// into /var/log while the host was already short of memory.
+    #[test]
+    fn a_sustained_emergency_records_once_not_once_per_cycle() {
+        let cfg = emergency_cfg(true);
+        let ev = emergency_ev();
+        let mut budget = Budget::new();
+        let mut slugs: Vec<String> = Vec::new();
+        {
+            let mut record = |slug: &str, _p: serde_json::Value| slugs.push(slug.to_string());
+            handle_emergency(&cfg, &mut budget, &ev, Gated::Newly, 0, 0, &mut record);
+            for cycle in 1..20 {
+                handle_emergency(
+                    &cfg,
+                    &mut budget,
+                    &ev,
+                    Gated::Still,
+                    cycle,
+                    cycle,
+                    &mut record,
+                );
+            }
+        }
+        assert_eq!(
+            slugs,
+            ["memory-emergency"],
+            "observe-only recorded more than the onset over 20 cycles"
+        );
+    }
+
+    #[test]
+    fn each_shed_unit_gets_its_own_record_name() {
+        let cfg = emergency_cfg(false);
+        let ev = emergency_ev();
+        let mut budget = Budget::new();
+        let mut slugs: Vec<String> = Vec::new();
+        {
+            // Not Live, so systemd is never invoked; admit still runs and the
+            // decision is what selects the record.
+            let mut record = |slug: &str, _p: serde_json::Value| slugs.push(slug.to_string());
+            handle_emergency(&cfg, &mut budget, &ev, Gated::Newly, 0, 0, &mut record);
+        }
+        let shed: Vec<&String> = slugs.iter().filter(|s| s.contains(".service")).collect();
+        assert_eq!(shed.len(), 2, "got {slugs:?}");
+        assert_ne!(shed[0], shed[1], "two units shared one record name");
+    }
+
+    #[test]
+    fn a_cleared_emergency_records_nothing() {
+        let cfg = emergency_cfg(true);
+        let ev = emergency_ev();
+        let mut budget = Budget::new();
+        let mut count = 0;
+        {
+            let mut record = |_s: &str, _p: serde_json::Value| count += 1;
+            handle_emergency(&cfg, &mut budget, &ev, Gated::No, 0, 0, &mut record);
+        }
+        assert_eq!(count, 0);
     }
 
     #[test]

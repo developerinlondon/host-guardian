@@ -54,8 +54,12 @@ impl Budget {
             }
         }
 
-        let cutoff = now.saturating_sub(policy.budget_window_sec);
-        self.history.retain(|&t| t > cutoff);
+        // Compare the age of each entry, not against a saturated cutoff. With a
+        // monotonic clock `now` starts at 0, so `now - window` clamps to 0 and
+        // `t > 0` evicts the action recorded at t == 0 — releasing a whole
+        // extra budget during the daemon's first window.
+        self.history
+            .retain(|&t| now.saturating_sub(t) < policy.budget_window_sec);
         if self.history.len() >= policy.max_actions_per_window {
             return Decision::SuppressedBudget;
         }
@@ -126,6 +130,36 @@ mod tests {
             b.admit("u3.service", 1004, &policy(), false),
             Decision::SuppressedBudget
         );
+    }
+
+    #[test]
+    fn budget_holds_from_a_zero_base() {
+        // The monotonic clock starts at 0, so the window arithmetic must not
+        // treat an action at t == 0 as already expired.
+        let mut b = Budget::new();
+        for i in 0..3 {
+            assert_eq!(
+                b.admit(&format!("u{i}.service"), i, &policy(), false),
+                Decision::Shed
+            );
+        }
+        assert_eq!(
+            b.admit("u3.service", 3, &policy(), false),
+            Decision::SuppressedBudget,
+            "a zero-based clock let a fourth action through a 3-action window"
+        );
+    }
+
+    #[test]
+    fn budget_behaves_identically_whatever_the_epoch() {
+        let run = |base: u64| {
+            let mut b = Budget::new();
+            for i in 0..3 {
+                b.admit(&format!("u{i}.service"), base + i, &policy(), false);
+            }
+            b.admit("u3.service", base + 3, &policy(), false)
+        };
+        assert_eq!(run(0), run(1_700_000_000));
     }
 
     #[test]

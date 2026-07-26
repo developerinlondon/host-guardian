@@ -58,7 +58,12 @@ Configuration. Thresholds, shed units and mount expectations.
 Prometheus textfile output.
 .TP
 .I /var/log/hostguard/incidents
-One JSON record per condition that crossed its sample gate.
+One JSON record when a condition first crosses its sample gate, and one per
+action actually taken. A condition that persists is not re-recorded, and a
+suppressed action is not recorded at all \- those are visible in
+.IR hostguard_actions_in_window .
+Aged out after 30 days by
+.IR /usr/lib/tmpfiles.d/hostguard.conf .
 .SH SAFETY
 An emergency requires both low available memory
 .I and
