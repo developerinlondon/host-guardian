@@ -1,0 +1,9 @@
+hostguard (0.1.0) unstable; urgency=medium
+
+  * Initial release.
+  * Mount identity verification against /proc/self/mountinfo.
+  * Named-unit shedding under memory emergency, with per-unit cooldown and a
+    global action budget.
+  * Resident daemon driven by a PSI trigger, with systemd watchdog supervision.
+
+ -- Nayeem Syed <developerinlondon@gmail.com>  Sun, 26 Jul 2026 06:00:00 +0000

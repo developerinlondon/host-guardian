@@ -1,0 +1,80 @@
+.TH HOSTGUARD 1 "2026-07-26" "hostguard" "System Administration"
+.SH NAME
+hostguard \- verify mount identity and shed named units under memory pressure
+.SH SYNOPSIS
+.B hostguard
+.RB [ \-\-config
+.IR PATH ]
+.RB [ \-\-once ]
+.SH DESCRIPTION
+.B hostguard
+checks that each declared mountpoint is still backed by the filesystem it is
+supposed to be, and stops operator-nominated units when the host is genuinely
+out of memory.
+.PP
+It is deliberately narrow. Memory, CPU, IO, load and filesystem metrics come
+from
+.BR prometheus\-node\-exporter (1);
+restarting a unit that failed is systemd's own
+.B Restart=
+directive; killing by cgroup pressure is
+.BR systemd\-oomd (8).
+.B hostguard
+implements only what none of those cover: verifying a mount is still the
+filesystem you declared, and shedding a
+.I named
+unit rather than whichever cgroup happens to be under the most pressure.
+.PP
+Results are published as a Prometheus textfile for node-exporter to collect, so
+.B hostguard
+listens on no socket.
+.SH OPTIONS
+.TP
+.BI \-\-config " PATH"
+Configuration file. Default
+.IR /etc/hostguard/config.json .
+.TP
+.B \-\-once
+Evaluate once, print the metrics to standard output and exit. Does not act.
+.TP
+.B \-\-version
+Print the version and exit.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+The configuration could not be read or is invalid.
+.TP
+.B 2
+A command-line argument was not recognised.
+.SH FILES
+.TP
+.I /etc/hostguard/config.json
+Configuration. Thresholds, shed units and mount expectations.
+.TP
+.I /var/lib/hostguard/textfile/hostguard.prom
+Prometheus textfile output.
+.TP
+.I /var/log/hostguard/incidents
+One JSON record per condition that crossed its sample gate.
+.SH SAFETY
+An emergency requires both low available memory
+.I and
+high full memory PSI; either alone is normal. Conditions must persist for
+.I consecutive_samples
+evaluations before anything acts. Actions are rate limited by a per-unit
+cooldown and a global budget per rolling window.
+.PP
+There is no unlink, prune, reboot or arbitrary-PID kill in the binary. The only
+mutation available is
+.B systemctl stop
+on a unit named in the configuration, and unit names are validated so a
+configuration file cannot become arbitrary root execution.
+.SH SEE ALSO
+.BR systemd\-oomd (8),
+.BR tmpfiles.d (5),
+.BR proc (5)
+.PP
+https://github.com/developerinlondon/hostguard

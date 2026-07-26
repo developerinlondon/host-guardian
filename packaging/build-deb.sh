@@ -39,6 +39,22 @@ install -D -m 0644 "$repo/README.md" \
 install -D -m 0644 "$repo/LICENSE" \
   "$stage/usr/share/doc/hostguard/copyright"
 
+# Policy requires a changelog and lintian errors without one. Refuse to build a
+# package whose changelog disagrees with the version being built, rather than
+# shipping a plausible-looking lie about what changed.
+changelog_version="$(sed -n '1s/^hostguard (\([^)]*\)).*/\1/p' "$repo/packaging/deb/changelog")"
+if [ "$changelog_version" != "$version" ]; then
+  echo "changelog top entry is $changelog_version but building $version" >&2
+  exit 1
+fi
+gzip -9nc "$repo/packaging/deb/changelog" \
+  > "$stage/usr/share/doc/hostguard/changelog.gz"
+chmod 0644 "$stage/usr/share/doc/hostguard/changelog.gz"
+
+install -d -m 0755 "$stage/usr/share/man/man1"
+gzip -9nc "$repo/packaging/hostguard.1" > "$stage/usr/share/man/man1/hostguard.1.gz"
+chmod 0644 "$stage/usr/share/man/man1/hostguard.1.gz"
+
 install -d -m 0755 "$stage/DEBIAN"
 sed -e "s/@VERSION@/$version/" -e "s/@ARCH@/$arch/" \
   "$repo/packaging/deb/control.in" > "$stage/DEBIAN/control"

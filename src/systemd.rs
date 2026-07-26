@@ -80,9 +80,7 @@ fn systemctl(args: &[&str], timeout: Duration) -> io::Result<std::process::Outpu
 
 pub fn is_active(unit: &str, timeout: Duration) -> bool {
     // `is-active` exits non-zero for inactive units, which is not an error.
-    systemctl(&["is-active", "--quiet", unit], timeout)
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    systemctl(&["is-active", "--quiet", unit], timeout).is_ok_and(|o| o.status.success())
 }
 
 pub fn stop(unit: &str, timeout: Duration) -> Result<(), String> {
