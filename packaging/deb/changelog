@@ -1,3 +1,11 @@
+host-guardian (0.1.1) unstable; urgency=medium
+
+  * Read the mount table from PID 1, not from the unit's own namespace.
+    ProtectHome=yes removes the /home submounts, so every configured mount
+    under /home reported mount_present=0 while mounted and healthy.
+
+ -- Nayeem Syed <developerinlondon@gmail.com>  Sun, 26 Jul 2026 17:55:00 +0000
+
 host-guardian (0.1.0) unstable; urgency=medium
 
   * Initial release.

@@ -18,7 +18,13 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 const DEFAULT_CONFIG: &str = "/etc/host-guardian/config.json";
 const PSI_MEMORY: &str = "/proc/pressure/memory";
 const MEMINFO: &str = "/proc/meminfo";
-const MOUNTINFO: &str = "/proc/self/mountinfo";
+// PID 1's table, not our own. The unit runs with ProtectHome=yes and
+// ProtectSystem=strict, and those do not merely hide paths — they give the unit
+// its own mount namespace with the protected submounts REMOVED. Reading
+// /proc/self/mountinfo there makes every mount under /home look absent, which
+// reports mount_present=0 for a filesystem that is mounted and healthy. PID 1
+// stays in the host namespace, so its table is the host's.
+const MOUNTINFO: &str = "/proc/1/mountinfo";
 
 struct Args {
     config: String,
@@ -439,6 +445,28 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mount_table_is_read_from_pid1_not_self() {
+        assert_eq!(
+            MOUNTINFO, "/proc/1/mountinfo",
+            "ProtectHome=yes removes the /home submounts from this unit's \
+             namespace, so our own mountinfo reports mounted filesystems absent"
+        );
+    }
+
+    #[test]
+    fn pid1_table_parses_and_carries_root() {
+        let Ok(text) = std::fs::read_to_string(MOUNTINFO) else {
+            eprintln!("skipped: {MOUNTINFO} unreadable here");
+            return;
+        };
+        let parsed = mounts::parse_mountinfo(&text).expect("PID 1 mountinfo must parse");
+        assert!(
+            parsed.contains_key("/"),
+            "a host mount table carries the root mount"
+        );
+    }
 
     #[test]
     fn gate_requires_consecutive_samples() {

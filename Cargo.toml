@@ -1,6 +1,6 @@
 [package]
 name = "host-guardian"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.82"
 description = "Host health guardian: verifies mount identity and sheds named units under memory pressure"

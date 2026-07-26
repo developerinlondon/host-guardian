@@ -1,4 +1,4 @@
-//! Mount identity verification against `/proc/self/mountinfo`.
+//! Mount identity verification against `/proc/1/mountinfo`.
 //!
 //! Checking a path is *mounted* is easy; checking the thing mounted there is
 //! still the filesystem you expected is not covered by anything standard. A
@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-/// One line of `/proc/self/mountinfo`, reduced to the fields that establish
+/// One line of `/proc/1/mountinfo`, reduced to the fields that establish
 /// identity. The device major:minor is deliberately excluded: minor numbers are
 /// reallocated across boots, so pinning them produces false alarms.
 #[derive(Debug, Clone, PartialEq, Eq)]
