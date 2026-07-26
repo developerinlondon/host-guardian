@@ -1,0 +1,107 @@
+name: apt-repo
+
+# Rebuilds the signed apt repository from every published release, so the index
+# is derived from what actually shipped rather than accumulated in a branch.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: apt-repo
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install archive tooling
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq dpkg-dev apt-utils
+
+      - name: Collect every released .deb
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p repo/pool/main/h/hostguard
+          for tag in $(gh release list --limit 100 --json tagName --jq '.[].tagName'); do
+            gh release download "$tag" --dir /tmp/dl --pattern '*.deb' --clobber || continue
+            for f in /tmp/dl/*.deb; do
+              [ -e "$f" ] || continue
+              # Name by the package's own control fields: release assets use a
+              # stable filename, so several tags would otherwise collide.
+              ver=$(dpkg-deb -f "$f" Version)
+              arch=$(dpkg-deb -f "$f" Architecture)
+              cp "$f" "repo/pool/main/h/hostguard/hostguard_${ver}_${arch}.deb"
+            done
+            rm -f /tmp/dl/*.deb
+          done
+          ls -1 repo/pool/main/h/hostguard/
+
+      - name: Generate indices
+        working-directory: repo
+        run: |
+          for arch in amd64 arm64; do
+            mkdir -p "dists/stable/main/binary-$arch"
+            dpkg-scanpackages --arch "$arch" pool /dev/null \
+              > "dists/stable/main/binary-$arch/Packages"
+            gzip -9nkf "dists/stable/main/binary-$arch/Packages"
+          done
+          cat > apt-ftparchive.conf <<'CONF'
+          APT::FTPArchive::Release::Origin "hostguard";
+          APT::FTPArchive::Release::Label "hostguard";
+          APT::FTPArchive::Release::Suite "stable";
+          APT::FTPArchive::Release::Codename "stable";
+          APT::FTPArchive::Release::Architectures "amd64 arm64";
+          APT::FTPArchive::Release::Components "main";
+          CONF
+          apt-ftparchive -c apt-ftparchive.conf release dists/stable \
+            > dists/stable/Release
+          rm apt-ftparchive.conf
+
+      - name: Sign the release index
+        env:
+          KEY: ${{ secrets.APT_SIGNING_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error::APT_SIGNING_KEY is not set. An unsigned apt repo is one" \
+                 "apt will refuse by default, so this fails rather than publishing it."
+            exit 1
+          fi
+          printf '%s' "$KEY" | gpg --batch --import
+          keyid=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec:/ {print $5; exit}')
+          gpg --batch --yes --default-key "$keyid" \
+            -abs -o repo/dists/stable/Release.gpg repo/dists/stable/Release
+          gpg --batch --yes --default-key "$keyid" \
+            --clearsign -o repo/dists/stable/InRelease repo/dists/stable/Release
+          # The public key users pin with signed-by=.
+          gpg --export "$keyid" > repo/hostguard.gpg
+
+      - name: Verify the index apt will actually read
+        working-directory: repo
+        run: |
+          gpg --verify dists/stable/Release.gpg dists/stable/Release
+          gpg --verify dists/stable/InRelease
+          grep -q '^Package: hostguard' dists/stable/main/binary-amd64/Packages
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: repo
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

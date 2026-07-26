@@ -1,0 +1,58 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+
+  package:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo build --release
+      - run: packaging/build-deb.sh
+
+      # A package that builds but will not install is not a package. lintian
+      # catches control-field and permission mistakes dpkg-deb accepts happily.
+      - name: Lint the package
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lintian
+          lintian --fail-on error dist/*.deb
+
+      - name: Install, verify, remove
+        run: |
+          sudo apt-get install -y ./dist/*.deb
+          test -x /usr/bin/hostguard
+          hostguard --version
+          systemctl is-enabled hostguard.service
+          # Shipped config must be inert: observe-only, nothing to shed.
+          sudo hostguard --once --config /etc/hostguard/config.json | grep -q '^hostguard_up 1'
+          sudo apt-get remove -y hostguard
+          test ! -e /usr/bin/hostguard
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: dist/*.deb
