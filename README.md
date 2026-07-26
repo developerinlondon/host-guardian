@@ -30,10 +30,26 @@ pressure, not your ranking of what is expendable.
 
 ## Install
 
+From the apt repository, so upgrades come with everything else:
+
+```sh
+sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL https://developerinlondon.github.io/hostguard/hostguard.gpg |
+  sudo tee /etc/apt/keyrings/hostguard.gpg >/dev/null
+echo "deb [signed-by=/etc/apt/keyrings/hostguard.gpg] https://developerinlondon.github.io/hostguard stable main" |
+  sudo tee /etc/apt/sources.list.d/hostguard.list >/dev/null
+sudo apt update && sudo apt install hostguard
+```
+
+Or a single package, without adding a source:
+
 ```sh
 curl -LO https://github.com/developerinlondon/hostguard/releases/latest/download/hostguard_amd64.deb
-sudo dpkg -i hostguard_amd64.deb
+sudo apt install ./hostguard_amd64.deb
 ```
+
+`apt install ./file.deb` rather than `dpkg -i` so the recommended packages come
+with it; `dpkg` does not resolve dependencies.
 
 The package installs enabled but **not started**, and ships with
 `observe_only: true`, no shed units, and no mount expectations — so it does
