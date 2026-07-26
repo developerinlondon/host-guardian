@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "observe_only": true,
-  "metrics_path": "/var/lib/hostguard/textfile/hostguard.prom",
-  "incident_dir": "/var/log/hostguard/incidents",
+  "metrics_path": "/var/lib/host-guardian/textfile/host-guardian.prom",
+  "incident_dir": "/var/log/host-guardian/incidents",
   "consecutive_samples": 2,
   "poll_interval_sec": 30,
   "memory": {

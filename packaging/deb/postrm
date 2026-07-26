@@ -5,16 +5,16 @@ case "$1" in
 remove | purge)
     # node-exporter's textfile collector keeps serving whatever it last found,
     # so leaving the .prom behind means Prometheus goes on reporting
-    # hostguard_up 1 and every mount healthy for a daemon that is gone. Stale
+    # host_guardian_up 1 and every mount healthy for a daemon that is gone. Stale
     # monitoring that says "fine" is worse than none.
-    rm -f /var/lib/hostguard/textfile/hostguard.prom
+    rm -f /var/lib/host-guardian/textfile/host-guardian.prom
     ;;
 esac
 
 case "$1" in
 purge)
     # postinst created these outside dpkg's file list, so dpkg will not.
-    rm -rf /var/lib/hostguard /var/log/hostguard
+    rm -rf /var/lib/host-guardian /var/log/host-guardian
     ;;
 esac
 

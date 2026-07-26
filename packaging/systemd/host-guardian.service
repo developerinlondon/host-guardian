@@ -1,13 +1,13 @@
 [Unit]
 Description=Host health guardian
-Documentation=https://github.com/developerinlondon/hostguard
+Documentation=https://github.com/developerinlondon/host-guardian
 # It reads /proc/self/mountinfo and must see the host mount table.
 After=local-fs.target
 Wants=local-fs.target
 
 [Service]
 Type=notify
-ExecStart=/usr/bin/hostguard --config /etc/hostguard/config.json
+ExecStart=/usr/bin/host-guardian --config /etc/host-guardian/config.json
 Restart=always
 RestartSec=5s
 # Restart= only fires when the process exits. WatchdogSec catches the case that
@@ -20,7 +20,7 @@ WatchdogSec=60s
 NoNewPrivileges=yes
 ProtectHome=yes
 ProtectSystem=strict
-ReadWritePaths=/var/lib/hostguard /var/log/hostguard
+ReadWritePaths=/var/lib/host-guardian /var/log/host-guardian
 PrivateTmp=no
 RestrictSUIDSGID=yes
 RestrictRealtime=yes

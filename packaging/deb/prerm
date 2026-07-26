@@ -4,7 +4,7 @@ set -e
 case "$1" in
 remove | deconfigure)
     if [ -d /run/systemd/system ]; then
-        systemctl disable --now hostguard.service || true
+        systemctl disable --now host-guardian.service || true
     fi
     ;;
 upgrade | failed-upgrade) ;;

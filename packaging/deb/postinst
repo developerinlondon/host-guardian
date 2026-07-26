@@ -4,9 +4,9 @@ set -e
 case "$1" in
 configure)
     # The textfile directory is read by node-exporter, which runs unprivileged.
-    mkdir -p /var/lib/hostguard/textfile /var/log/hostguard/incidents
-    chmod 0755 /var/lib/hostguard /var/lib/hostguard/textfile
-    chmod 0750 /var/log/hostguard /var/log/hostguard/incidents
+    mkdir -p /var/lib/host-guardian/textfile /var/log/host-guardian/incidents
+    chmod 0755 /var/lib/host-guardian /var/lib/host-guardian/textfile
+    chmod 0750 /var/log/host-guardian /var/log/host-guardian/incidents
 
     if [ -d /run/systemd/system ]; then
         systemctl daemon-reload || true
@@ -16,11 +16,11 @@ configure)
         if [ -z "$2" ]; then
             # Enabled but not started: the shipped config has no shed units and
             # no mount expectations, so starting it here would do nothing.
-            # An operator edits /etc/hostguard/config.json and then starts it.
-            systemctl enable hostguard.service || true
+            # An operator edits /etc/host-guardian/config.json and then starts it.
+            systemctl enable host-guardian.service || true
         fi
-        if systemctl is-active --quiet hostguard.service; then
-            systemctl restart hostguard.service || true
+        if systemctl is-active --quiet host-guardian.service; then
+            systemctl restart host-guardian.service || true
         fi
     fi
     ;;

@@ -16,7 +16,7 @@ outdir="${OUTDIR:-$repo/dist}"
 if [ -z "${BINARY:-}" ]; then
   target_dir="$(cd "$repo" && cargo metadata --no-deps --format-version 1 2>/dev/null |
     sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')"
-  binary="${target_dir:-$repo/target}/release/hostguard"
+  binary="${target_dir:-$repo/target}/release/host-guardian"
 else
   binary="$BINARY"
 fi
@@ -29,31 +29,31 @@ fi
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
 
-install -D -m 0755 "$binary" "$stage/usr/bin/hostguard"
-install -D -m 0644 "$repo/packaging/systemd/hostguard.service" \
-  "$stage/lib/systemd/system/hostguard.service"
+install -D -m 0755 "$binary" "$stage/usr/bin/host-guardian"
+install -D -m 0644 "$repo/packaging/systemd/host-guardian.service" \
+  "$stage/lib/systemd/system/host-guardian.service"
 install -D -m 0644 "$repo/packaging/config.example.json" \
-  "$stage/etc/hostguard/config.json"
+  "$stage/etc/host-guardian/config.json"
 install -D -m 0644 "$repo/README.md" \
-  "$stage/usr/share/doc/hostguard/README.md"
+  "$stage/usr/share/doc/host-guardian/README.md"
 install -D -m 0644 "$repo/LICENSE" \
-  "$stage/usr/share/doc/hostguard/copyright"
+  "$stage/usr/share/doc/host-guardian/copyright"
 
 # Policy requires a changelog and lintian errors without one. Refuse to build a
 # package whose changelog disagrees with the version being built, rather than
 # shipping a plausible-looking lie about what changed.
-changelog_version="$(sed -n '1s/^hostguard (\([^)]*\)).*/\1/p' "$repo/packaging/deb/changelog")"
+changelog_version="$(sed -n '1s/^host-guardian (\([^)]*\)).*/\1/p' "$repo/packaging/deb/changelog")"
 if [ "$changelog_version" != "$version" ]; then
   echo "changelog top entry is $changelog_version but building $version" >&2
   exit 1
 fi
 gzip -9nc "$repo/packaging/deb/changelog" \
-  > "$stage/usr/share/doc/hostguard/changelog.gz"
-chmod 0644 "$stage/usr/share/doc/hostguard/changelog.gz"
+  > "$stage/usr/share/doc/host-guardian/changelog.gz"
+chmod 0644 "$stage/usr/share/doc/host-guardian/changelog.gz"
 
 install -d -m 0755 "$stage/usr/share/man/man1"
-gzip -9nc "$repo/packaging/hostguard.1" > "$stage/usr/share/man/man1/hostguard.1.gz"
-chmod 0644 "$stage/usr/share/man/man1/hostguard.1.gz"
+gzip -9nc "$repo/packaging/host-guardian.1" > "$stage/usr/share/man/man1/host-guardian.1.gz"
+chmod 0644 "$stage/usr/share/man/man1/host-guardian.1.gz"
 
 install -d -m 0755 "$stage/DEBIAN"
 
@@ -63,7 +63,7 @@ install -d -m 0755 "$stage/DEBIAN"
 shlibs=""
 if command -v dpkg-shlibdeps >/dev/null 2>&1; then
   ( cd "$stage" && mkdir -p debian && : > debian/control \
-      && dpkg-shlibdeps -O --ignore-missing-info "usr/bin/hostguard" 2>/dev/null ) \
+      && dpkg-shlibdeps -O --ignore-missing-info "usr/bin/host-guardian" 2>/dev/null ) \
     > "$stage/.shlibs" || true
   shlibs="$(sed -n 's/^shlibs:Depends=//p' "$stage/.shlibs" 2>/dev/null)"
   rm -rf "$stage/debian" "$stage/.shlibs"
@@ -81,14 +81,14 @@ install -m 0755 "$repo/packaging/deb/postrm" "$stage/DEBIAN/postrm"
 
 # Incident records are evidence, not archives; without this they accumulate
 # until someone notices.
-install -D -m 0644 "$repo/packaging/tmpfiles/hostguard.conf" \
-  "$stage/usr/lib/tmpfiles.d/hostguard.conf"
+install -D -m 0644 "$repo/packaging/tmpfiles/host-guardian.conf" \
+  "$stage/usr/lib/tmpfiles.d/host-guardian.conf"
 
 # Marking the config a conffile is what stops dpkg silently overwriting an
 # operator's thresholds and mount expectations on every upgrade.
-echo "/etc/hostguard/config.json" > "$stage/DEBIAN/conffiles"
+echo "/etc/host-guardian/config.json" > "$stage/DEBIAN/conffiles"
 
 mkdir -p "$outdir"
-deb="$outdir/hostguard_${version}_${arch}.deb"
+deb="$outdir/host-guardian_${version}_${arch}.deb"
 dpkg-deb --root-owner-group --build "$stage" "$deb" >/dev/null
 echo "$deb"

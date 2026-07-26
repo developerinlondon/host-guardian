@@ -1,4 +1,4 @@
-# hostguard
+# host-guardian
 
 Verifies that your mountpoints are still backed by the filesystems you declared,
 and stops units you nominate when the host is genuinely out of memory.
@@ -16,7 +16,7 @@ should do is already running on your machine.
 | killing by cgroup memory pressure | `systemd-oomd` |
 
 Re-implementing any of that gives you two places to disagree about the same
-number. hostguard implements the two things none of them cover:
+number. host-guardian implements the two things none of them cover:
 
 **Mount identity.** Plenty of things check a path is mounted. Nothing standard
 checks that the filesystem mounted there is the one you expected. When a nested
@@ -34,18 +34,18 @@ From the apt repository, so upgrades come with everything else:
 
 ```sh
 sudo install -d -m 0755 /etc/apt/keyrings
-curl -fsSL https://developerinlondon.github.io/hostguard/hostguard.gpg |
-  sudo tee /etc/apt/keyrings/hostguard.gpg >/dev/null
-echo "deb [signed-by=/etc/apt/keyrings/hostguard.gpg] https://developerinlondon.github.io/hostguard stable main" |
-  sudo tee /etc/apt/sources.list.d/hostguard.list >/dev/null
-sudo apt update && sudo apt install hostguard
+curl -fsSL https://developerinlondon.github.io/host-guardian/host-guardian.gpg |
+  sudo tee /etc/apt/keyrings/host-guardian.gpg >/dev/null
+echo "deb [signed-by=/etc/apt/keyrings/host-guardian.gpg] https://developerinlondon.github.io/host-guardian stable main" |
+  sudo tee /etc/apt/sources.list.d/host-guardian.list >/dev/null
+sudo apt update && sudo apt install host-guardian
 ```
 
 Or a single package, without adding a source:
 
 ```sh
-curl -LO https://github.com/developerinlondon/hostguard/releases/latest/download/hostguard_amd64.deb
-sudo apt install ./hostguard_amd64.deb
+curl -LO https://github.com/developerinlondon/host-guardian/releases/latest/download/host-guardian_amd64.deb
+sudo apt install ./host-guardian_amd64.deb
 ```
 
 `apt install ./file.deb` rather than `dpkg -i` so the recommended packages come
@@ -53,14 +53,14 @@ with it; `dpkg` does not resolve dependencies.
 
 The package installs enabled but **not started**, and ships with
 `observe_only: true`, no shed units, and no mount expectations — so it does
-nothing until you configure it. Edit `/etc/hostguard/config.json`, then:
+nothing until you configure it. Edit `/etc/host-guardian/config.json`, then:
 
 ```sh
-sudo systemctl start hostguard
+sudo systemctl start host-guardian
 ```
 
 `systemd-oomd` and `prometheus-node-exporter` are `Recommends:`, so apt installs
-them by default. They are not hard dependencies: hostguard works without them,
+them by default. They are not hard dependencies: host-guardian works without them,
 you just lose the layers it is designed to complement.
 
 ## Configure
@@ -69,8 +69,8 @@ you just lose the layers it is designed to complement.
 {
   "schema_version": 1,
   "observe_only": false,
-  "metrics_path": "/var/lib/hostguard/textfile/hostguard.prom",
-  "incident_dir": "/var/log/hostguard/incidents",
+  "metrics_path": "/var/lib/host-guardian/textfile/host-guardian.prom",
+  "incident_dir": "/var/log/host-guardian/incidents",
   "consecutive_samples": 2,
   "poll_interval_sec": 30,
   "memory": { "available_bytes": 8589934592, "full_psi_percent": 10.0 },
@@ -115,7 +115,7 @@ A timer is safe by construction — a process that cannot stay running cannot
 wedge — but it pays process startup on every tick and needs a state file to
 remember anything.
 
-hostguard is resident, so cooldown state lives in memory, and it arms a **PSI
+host-guardian is resident, so cooldown state lives in memory, and it arms a **PSI
 trigger**: the kernel wakes it when stall time crosses a threshold instead of it
 waking up to ask. The safety a timer gave for free is restored by
 `WatchdogSec=`: `Restart=` only fires when a process *exits*, so it cannot catch
@@ -125,18 +125,18 @@ failure signal. Where PSI is unavailable it falls back to interval polling.
 ## Output
 
 Everything is published as a Prometheus textfile for node-exporter to collect;
-hostguard listens on no socket.
+host-guardian listens on no socket.
 
 ```
-hostguard_up 1
-hostguard_memory_available_bytes 5.1723010048e+10
-hostguard_memory_emergency 0
-hostguard_mount_ok{path="/var/build"} 1
-hostguard_mount_present{path="/var/build"} 1
-hostguard_actions_in_window 0
+host_guardian_up 1
+host_guardian_memory_available_bytes 5.1723010048e+10
+host_guardian_memory_emergency 0
+host_guardian_mount_ok{path="/var/build"} 1
+host_guardian_mount_present{path="/var/build"} 1
+host_guardian_actions_in_window 0
 ```
 
-The alert worth having is `hostguard_mount_ok == 0`, which fires when a volume
+The alert worth having is `host_guardian_mount_ok == 0`, which fires when a volume
 you rely on is no longer the volume you think it is.
 
 ## Build

@@ -15,7 +15,7 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-const DEFAULT_CONFIG: &str = "/etc/hostguard/config.json";
+const DEFAULT_CONFIG: &str = "/etc/host-guardian/config.json";
 const PSI_MEMORY: &str = "/proc/pressure/memory";
 const MEMINFO: &str = "/proc/meminfo";
 const MOUNTINFO: &str = "/proc/self/mountinfo";
@@ -37,13 +37,13 @@ fn parse_args() -> Result<Args, String> {
             }
             "--once" => once = true,
             "--version" => {
-                println!("hostguard {}", env!("CARGO_PKG_VERSION"));
+                println!("host-guardian {}", env!("CARGO_PKG_VERSION"));
                 std::process::exit(0);
             }
             "--help" | "-h" => {
                 println!(
-                    "hostguard {}\n\n\
-                     Usage: hostguard [--config PATH] [--once]\n\n\
+                    "host-guardian {}\n\n\
+                     Usage: host-guardian [--config PATH] [--once]\n\n\
                        --config PATH  configuration file (default {DEFAULT_CONFIG})\n\
                        --once         evaluate once and exit; does not act\n\
                        --version      print version and exit",
@@ -207,7 +207,10 @@ fn write_incident(dir: &Path, now: u64, event: &str, payload: &serde_json::Value
     let path = dir.join(format!("{now}-{slug}.json"));
     let body = serde_json::to_string_pretty(payload).unwrap_or_else(|_| "{}".into());
     if let Err(e) = write_atomic(&path, &format!("{body}\n"), 0o600) {
-        eprintln!("hostguard: cannot write incident {}: {e}", path.display());
+        eprintln!(
+            "host-guardian: cannot write incident {}: {e}",
+            path.display()
+        );
     }
 }
 
@@ -358,7 +361,7 @@ fn main() -> ExitCode {
     let args = match parse_args() {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("hostguard: {e}");
+            eprintln!("host-guardian: {e}");
             return ExitCode::from(2);
         }
     };
@@ -366,14 +369,14 @@ fn main() -> ExitCode {
     let text = match std::fs::read_to_string(&args.config) {
         Ok(t) => t,
         Err(e) => {
-            eprintln!("hostguard: cannot read {}: {e}", args.config);
+            eprintln!("host-guardian: cannot read {}: {e}", args.config);
             return ExitCode::FAILURE;
         }
     };
     let cfg = match config::parse(&text) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("hostguard: {e}");
+            eprintln!("host-guardian: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -402,8 +405,10 @@ fn main() -> ExitCode {
         Duration::from_secs(2),
     );
     match &trigger {
-        Ok(_) => eprintln!("hostguard: armed PSI trigger on {PSI_MEMORY}"),
-        Err(e) => eprintln!("hostguard: PSI trigger unavailable ({e}); polling every {interval:?}"),
+        Ok(_) => eprintln!("host-guardian: armed PSI trigger on {PSI_MEMORY}"),
+        Err(e) => {
+            eprintln!("host-guardian: PSI trigger unavailable ({e}); polling every {interval:?}")
+        }
     }
 
     systemd::notify_ready();
@@ -414,7 +419,7 @@ fn main() -> ExitCode {
     loop {
         let metrics = run_once(&cfg, &mut gate, &mut budget, mono(), Mode::Live);
         if let Err(e) = write_atomic(&cfg.metrics_path, &metrics, 0o644) {
-            eprintln!("hostguard: cannot write metrics: {e}");
+            eprintln!("host-guardian: cannot write metrics: {e}");
         }
         systemd::ping_watchdog();
 
@@ -422,7 +427,7 @@ fn main() -> ExitCode {
             Ok(t) => match t.wait(wait_for) {
                 Ok(_) => {}
                 Err(e) => {
-                    eprintln!("hostguard: PSI wait failed: {e}");
+                    eprintln!("host-guardian: PSI wait failed: {e}");
                     std::thread::sleep(wait_for);
                 }
             },
@@ -478,8 +483,8 @@ mod tests {
         let json = serde_json::json!({
             "schema_version": 1,
             "observe_only": observe_only,
-            "metrics_path": "/var/lib/hostguard/textfile/hostguard.prom",
-            "incident_dir": "/var/log/hostguard/incidents",
+            "metrics_path": "/var/lib/host-guardian/textfile/host-guardian.prom",
+            "incident_dir": "/var/log/host-guardian/incidents",
             "memory": { "available_bytes": 8_589_934_592_u64, "full_psi_percent": 10.0 },
             "shed_units": ["a.service", "b.service"],
             "mount_expectations": [],

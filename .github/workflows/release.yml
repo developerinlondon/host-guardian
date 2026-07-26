@@ -39,7 +39,7 @@ jobs:
       - name: Name the asset for a stable download URL
         run: |
           mkdir -p upload
-          cp dist/*.deb "upload/hostguard_${{ matrix.arch }}.deb"
+          cp dist/*.deb "upload/host-guardian_${{ matrix.arch }}.deb"
 
       - uses: actions/upload-artifact@v4
         with:
