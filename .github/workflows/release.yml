@@ -1,0 +1,61 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Refuse to release if the tag disagrees with Cargo.toml
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          crate="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          if [ "$tag" != "$crate" ]; then
+            echo "tag $tag != Cargo.toml $crate" >&2
+            exit 1
+          fi
+
+      - run: cargo test
+      - run: cargo build --release
+      - run: packaging/build-deb.sh
+
+      # Assets carry a stable name so the latest/download URL in the README
+      # keeps working; the release itself is what carries the version.
+      - name: Name the asset for a stable download URL
+        run: |
+          mkdir -p upload
+          cp dist/*.deb "upload/hostguard_${{ matrix.arch }}.deb"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.arch }}
+          path: upload/*.deb
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: deb-*
+          merge-multiple: true
+          path: dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.deb
+          generate_release_notes: true

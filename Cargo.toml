@@ -1,0 +1,29 @@
+[package]
+name = "hostguard"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+description = "Host health guardian: verifies mount identity and sheds named units under memory pressure"
+license = "MIT"
+repository = "https://github.com/developerinlondon/hostguard"
+readme = "README.md"
+categories = ["command-line-utilities"]
+keywords = ["systemd", "psi", "monitoring", "linux"]
+
+[dependencies]
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }

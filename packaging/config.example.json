@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "observe_only": true,
+  "metrics_path": "/var/lib/hostguard/textfile/hostguard.prom",
+  "incident_dir": "/var/log/hostguard/incidents",
+  "consecutive_samples": 2,
+  "poll_interval_sec": 30,
+  "memory": {
+    "available_bytes": 8589934592,
+    "full_psi_percent": 10.0
+  },
+  "shed_units": [],
+  "mount_expectations": [],
+  "actions": {
+    "cooldown_sec": 600,
+    "budget_window_sec": 3600,
+    "max_actions_per_window": 3
+  }
+}

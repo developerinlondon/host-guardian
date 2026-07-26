@@ -1,0 +1,41 @@
+[Unit]
+Description=Host health guardian
+Documentation=https://github.com/developerinlondon/hostguard
+# It reads /proc/self/mountinfo and must see the host mount table.
+After=local-fs.target
+Wants=local-fs.target
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/hostguard --config /etc/hostguard/config.json
+Restart=always
+RestartSec=5s
+# Restart= only fires when the process exits. WatchdogSec catches the case that
+# actually matters for a guardian: alive, is-active says active, guarding
+# nothing. The daemon pings at half this interval.
+WatchdogSec=60s
+
+# It stops other units, so it needs the systemd bus and root. Everything else
+# is closed off.
+NoNewPrivileges=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/hostguard /var/log/hostguard
+PrivateTmp=no
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+CapabilityBoundingSet=CAP_KILL CAP_DAC_READ_SEARCH
+
+# The guardian must survive the pressure it exists to respond to.
+OOMPolicy=continue
+OOMScoreAdjust=-900
+MemoryLow=32M
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target
