@@ -2,9 +2,11 @@ name: apt-repo
 
 # Rebuilds the signed apt repository from every published release, so the index
 # is derived from what actually shipped rather than accumulated in a branch.
+# Called by release.yml rather than triggered by `release: published`: a
+# release created with GITHUB_TOKEN does not fire repository events, so that
+# trigger would never run and the repo would silently never publish.
 on:
-  release:
-    types: [published]
+  workflow_call:
   workflow_dispatch:
 
 permissions:
