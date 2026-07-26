@@ -5,7 +5,7 @@ Priority: optional
 Architecture: @ARCH@
 Maintainer: Nayeem Syed <developerinlondon@gmail.com>
 Homepage: https://github.com/developerinlondon/hostguard
-Depends: libc6, systemd (>= 249)
+Depends: @SHLIBS@systemd (>= 249)
 Recommends: systemd-oomd, prometheus-node-exporter
 Description: Host health guardian for mount identity and memory shedding
  hostguard verifies that each declared mountpoint is still backed by the

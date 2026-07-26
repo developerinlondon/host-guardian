@@ -53,22 +53,32 @@ impl fmt::Display for MountError {
 /// A path containing a space is written `\040`; without decoding, such a mount
 /// never matches its expectation and the guardian reports a phantom failure.
 fn unescape(field: &str) -> String {
-    let mut out = String::with_capacity(field.len());
+    // Byte-wise throughout: mountpoints are arbitrary UTF-8 and the kernel
+    // escapes only space, tab, newline and backslash, so a `push(byte as char)`
+    // would reinterpret every multi-byte path as Latin-1 and make a healthy
+    // mount fail its expectation forever. Slicing by byte index would also
+    // panic on a char boundary.
     let bytes = field.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'\\' && i + 3 < bytes.len() {
-            let octal = &field[i + 1..i + 4];
-            if let Ok(byte) = u8::from_str_radix(octal, 8) {
-                out.push(byte as char);
-                i += 4;
-                continue;
+            let octal = &bytes[i + 1..i + 4];
+            if octal.iter().all(|c| (b'0'..=b'7').contains(c)) {
+                let value = octal
+                    .iter()
+                    .fold(0u16, |acc, c| acc * 8 + u16::from(c - b'0'));
+                if let Ok(byte) = u8::try_from(value) {
+                    out.push(byte);
+                    i += 4;
+                    continue;
+                }
             }
         }
-        out.push(bytes[i] as char);
+        out.push(bytes[i]);
         i += 1;
     }
-    out
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// Parse mountinfo into mountpoint -> identity.
@@ -196,6 +206,33 @@ mod tests {
     fn decodes_octal_escaped_mountpoints() {
         let m = parse_mountinfo(SAMPLE).unwrap();
         assert!(m.contains_key("/odd path"), "got keys: {:?}", m.keys());
+    }
+
+    #[test]
+    fn non_ascii_mountpoints_survive_intact() {
+        // Latin-1 reinterpretation here would leave a perfectly healthy mount
+        // permanently failing its expectation and crying wolf every cycle.
+        let line = "25 0 253:1 / /srv/café_data rw - ext4 /dev/sdz rw";
+        let m = parse_mountinfo(line).unwrap();
+        assert!(m.contains_key("/srv/café_data"), "got keys: {:?}", m.keys());
+
+        let want = expect("/srv/café_data", "/dev/sdz", "ext4", "/");
+        assert_eq!(verify(&[want], &m)[0].1, MountVerdict::Ok);
+    }
+
+    #[test]
+    fn a_backslash_before_a_multibyte_char_does_not_panic() {
+        // panic = "abort" in release turns any panic here into instant death of
+        // a root daemon, so the parser must not index across a char boundary.
+        let line = "25 0 253:1 / /a\\€b rw - ext4 /dev/sdz rw";
+        assert!(parse_mountinfo(line).is_ok());
+    }
+
+    #[test]
+    fn a_non_octal_escape_is_left_alone() {
+        let line = "25 0 253:1 / /a\\99x rw - ext4 /dev/sdz rw";
+        let m = parse_mountinfo(line).unwrap();
+        assert!(m.contains_key("/a\\99x"), "got keys: {:?}", m.keys());
     }
 
     #[test]

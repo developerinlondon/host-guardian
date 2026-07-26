@@ -80,11 +80,12 @@ fn systemctl(args: &[&str], timeout: Duration) -> io::Result<std::process::Outpu
 
 pub fn is_active(unit: &str, timeout: Duration) -> bool {
     // `is-active` exits non-zero for inactive units, which is not an error.
-    systemctl(&["is-active", "--quiet", unit], timeout).is_ok_and(|o| o.status.success())
+    // `--` so a unit name can never be read as an option.
+    systemctl(&["is-active", "--quiet", "--", unit], timeout).is_ok_and(|o| o.status.success())
 }
 
 pub fn stop(unit: &str, timeout: Duration) -> Result<(), String> {
-    match systemctl(&["stop", unit], timeout) {
+    match systemctl(&["stop", "--", unit], timeout) {
         Ok(o) if o.status.success() => Ok(()),
         Ok(o) => {
             let err = String::from_utf8_lossy(&o.stderr).trim().to_string();

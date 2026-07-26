@@ -35,9 +35,22 @@ impl Trigger {
                 "PSI stall threshold cannot exceed the window",
             ));
         }
+        // psi_trigger_create rejects a window that is not a multiple of 2s
+        // unless the caller holds CAP_SYS_RESOURCE, which the shipped unit
+        // drops. Refuse here rather than emit a write the kernel will EINVAL.
+        if window_us % 2_000_000 != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "PSI window must be a multiple of 2s without CAP_SYS_RESOURCE",
+            ));
+        }
 
         let mut file = OpenOptions::new().read(true).write(true).open(path)?;
-        write!(file, "full {stall_us} {window_us}")?;
+        // One write_all, and a trailing newline. psi_write parses each write()
+        // independently, so a formatting macro's multiple syscalls are each
+        // rejected; and it NUL-terminates at buf_size-1, eating the final digit
+        // when the newline is absent.
+        file.write_all(format!("full {stall_us} {window_us}\n").as_bytes())?;
         file.flush()?;
         Ok(Self { file })
     }
@@ -102,8 +115,40 @@ mod tests {
         let e = Trigger::arm(
             "/proc/does-not-exist/pressure",
             Duration::from_millis(50),
-            Duration::from_secs(1),
+            Duration::from_secs(2),
         );
         assert!(e.is_err());
+    }
+
+    #[test]
+    fn rejects_a_window_the_kernel_will_refuse_without_cap_sys_resource() {
+        let e = Trigger::arm(
+            "/proc/pressure/memory",
+            Duration::from_millis(150),
+            Duration::from_secs(1),
+        );
+        assert!(e.is_err(), "1s window is not a multiple of 2s");
+    }
+
+    /// The whole reason this is a daemon rather than a timer. A silent fallback
+    /// to interval polling looks healthy, so assert the arm actually succeeds
+    /// wherever the kernel exposes PSI.
+    #[test]
+    fn arms_against_the_real_kernel_interface() {
+        if !std::path::Path::new("/proc/pressure/memory").exists() {
+            eprintln!("skipping: kernel has no PSI support");
+            return;
+        }
+        match Trigger::arm(
+            "/proc/pressure/memory",
+            Duration::from_millis(150),
+            Duration::from_secs(2),
+        ) {
+            Ok(_) => {}
+            Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
+                eprintln!("skipping: PSI needs write permission on /proc/pressure/memory");
+            }
+            Err(e) => panic!("PSI trigger failed to arm: {e}"),
+        }
     }
 }

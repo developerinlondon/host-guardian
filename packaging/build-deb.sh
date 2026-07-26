@@ -56,10 +56,33 @@ gzip -9nc "$repo/packaging/hostguard.1" > "$stage/usr/share/man/man1/hostguard.1
 chmod 0644 "$stage/usr/share/man/man1/hostguard.1.gz"
 
 install -d -m 0755 "$stage/DEBIAN"
-sed -e "s/@VERSION@/$version/" -e "s/@ARCH@/$arch/" \
+
+# Derive the libc floor from the binary rather than declaring a bare `libc6`.
+# An unversioned dependency lets apt install happily on an older release, run
+# postinst, report success, and leave a binary that cannot exec at all.
+shlibs=""
+if command -v dpkg-shlibdeps >/dev/null 2>&1; then
+  ( cd "$stage" && mkdir -p debian && : > debian/control \
+      && dpkg-shlibdeps -O --ignore-missing-info "usr/bin/hostguard" 2>/dev/null ) \
+    > "$stage/.shlibs" || true
+  shlibs="$(sed -n 's/^shlibs:Depends=//p' "$stage/.shlibs" 2>/dev/null)"
+  rm -rf "$stage/debian" "$stage/.shlibs"
+fi
+if [ -z "$shlibs" ]; then
+  echo "dpkg-shlibdeps produced no dependency; refusing to ship a bare libc6" >&2
+  exit 1
+fi
+
+sed -e "s/@VERSION@/$version/" -e "s/@ARCH@/$arch/" -e "s|@SHLIBS@|$shlibs, |" \
   "$repo/packaging/deb/control.in" > "$stage/DEBIAN/control"
 install -m 0755 "$repo/packaging/deb/postinst" "$stage/DEBIAN/postinst"
 install -m 0755 "$repo/packaging/deb/prerm" "$stage/DEBIAN/prerm"
+install -m 0755 "$repo/packaging/deb/postrm" "$stage/DEBIAN/postrm"
+
+# Incident records are evidence, not archives; without this they accumulate
+# until someone notices.
+install -D -m 0644 "$repo/packaging/tmpfiles/hostguard.conf" \
+  "$stage/usr/lib/tmpfiles.d/hostguard.conf"
 
 # Marking the config a conffile is what stops dpkg silently overwriting an
 # operator's thresholds and mount expectations on every upgrade.

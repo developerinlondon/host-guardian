@@ -63,6 +63,10 @@ fn is_safe_unit(unit: &str) -> bool {
     !unit.is_empty()
         && unit.len() <= 255
         && unit.ends_with(".service")
+        // A leading '-' is an option to systemctl, not a unit. Nothing that
+        // both ends in .service and applies to `stop` is destructive today,
+        // but making config-supplied argv unambiguous is this check's job.
+        && !unit.starts_with('-')
         && unit
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '@' | ':' | '-'))
@@ -169,6 +173,8 @@ mod tests {
             "$(reboot).service",
             "a b.service",
             "../../etc/passwd.service",
+            "-M.service",
+            "-Hfoo.service",
         ] {
             let mut v = base();
             v["shed_units"] = serde_json::json!([bad]);

@@ -10,10 +10,15 @@ configure)
 
     if [ -d /run/systemd/system ]; then
         systemctl daemon-reload || true
-        # Enabled but not started: the shipped config has no shed units and no
-        # mount expectations, so starting it here would do nothing useful.
-        # An operator edits /etc/hostguard/config.json and then starts it.
-        systemctl enable hostguard.service || true
+        # Only on first install ($2 is the previously configured version, empty
+        # when there is none). Enabling on every upgrade would silently undo a
+        # deliberate `systemctl disable` and start a daemon that stops services.
+        if [ -z "$2" ]; then
+            # Enabled but not started: the shipped config has no shed units and
+            # no mount expectations, so starting it here would do nothing.
+            # An operator edits /etc/hostguard/config.json and then starts it.
+            systemctl enable hostguard.service || true
+        fi
         if systemctl is-active --quiet hostguard.service; then
             systemctl restart hostguard.service || true
         fi

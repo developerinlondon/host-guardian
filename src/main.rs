@@ -150,17 +150,35 @@ struct Gate {
     counters: HashMap<String, u32>,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum Gated {
+    /// Below the sample threshold, or the condition is clear.
+    No,
+    /// Crossed the threshold on this evaluation.
+    Newly,
+    /// Already reported on an earlier evaluation.
+    Still,
+}
+
+impl Gated {
+    fn active(self) -> bool {
+        self != Self::No
+    }
+}
+
 impl Gate {
-    fn observe(&mut self, key: &str, active: bool, required: u32) -> bool {
-        let count = if active {
-            let c = self.counters.entry(key.to_string()).or_insert(0);
-            *c = c.saturating_add(1);
-            *c
-        } else {
+    fn observe(&mut self, key: &str, active: bool, required: u32) -> Gated {
+        if !active {
             self.counters.remove(key);
-            0
-        };
-        active && count >= required
+            return Gated::No;
+        }
+        let c = self.counters.entry(key.to_string()).or_insert(0);
+        *c = c.saturating_add(1);
+        match (*c).cmp(&required) {
+            std::cmp::Ordering::Less => Gated::No,
+            std::cmp::Ordering::Equal => Gated::Newly,
+            std::cmp::Ordering::Greater => Gated::Still,
+        }
     }
 }
 
@@ -176,7 +194,22 @@ fn write_incident(dir: &Path, now: u64, event: &str, payload: &serde_json::Value
     }
 }
 
-fn run_once(cfg: &config::Config, gate: &mut Gate, budget: &mut Budget) -> String {
+/// `Dry` is what `--once` runs: evaluate and report, touch nothing. The manual
+/// and `--help` both promise that, and an operator sanity-checking a config as
+/// root on a live host is exactly who would be harmed by it not being true.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Dry,
+    Live,
+}
+
+fn run_once(
+    cfg: &config::Config,
+    gate: &mut Gate,
+    budget: &mut Budget,
+    mono: u64,
+    mode: Mode,
+) -> String {
     let now = now_secs();
     let ev = evaluate(cfg);
 
@@ -186,7 +219,10 @@ fn run_once(cfg: &config::Config, gate: &mut Gate, budget: &mut Budget) -> Strin
     for (path, verdict) in &ev.mounts {
         let key = format!("mount:{path}");
         let bad = !matches!(verdict, MountVerdict::Ok);
-        if gate.observe(&key, bad, cfg.consecutive_samples) {
+        // Newly, not active: a condition left unresolved overnight would
+        // otherwise write one file per poll and fill /var/log during exactly
+        // the incident this daemon exists to report.
+        if gate.observe(&key, bad, cfg.consecutive_samples) == Gated::Newly && mode == Mode::Live {
             write_incident(
                 &cfg.incident_dir,
                 now,
@@ -201,12 +237,12 @@ fn run_once(cfg: &config::Config, gate: &mut Gate, budget: &mut Budget) -> Strin
         }
     }
 
-    if emergency {
+    if emergency.active() && mode == Mode::Live {
         for (unit, active) in &ev.unit_active {
             if !active {
                 continue;
             }
-            let decision = budget.admit(unit, now, &cfg.actions, cfg.observe_only);
+            let decision = budget.admit(unit, mono, &cfg.actions, cfg.observe_only);
             let result = match decision {
                 Decision::Shed => match systemd::stop(unit, Duration::from_secs(2)) {
                     Ok(()) => "shed".to_string(),
@@ -237,7 +273,7 @@ fn run_once(cfg: &config::Config, gate: &mut Gate, budget: &mut Budget) -> Strin
         errors: ev.errors.len(),
         available_bytes: ev.pressure.available_bytes,
         full_psi_percent: ev.pressure.full_avg10_percent,
-        emergency_active: emergency,
+        emergency_active: emergency.active(),
         actions_in_window: budget.actions_in_window(),
         mounts: &ev.mounts,
         unit_active: &ev.unit_active,
@@ -271,8 +307,17 @@ fn main() -> ExitCode {
     let mut gate = Gate::default();
     let mut budget = Budget::new();
 
+    // Monotonic: cooldown and budget must not be widened by an NTP step. A
+    // forward jump past budget_window_sec on a host that boots with a bad RTC
+    // would otherwise clear the history and release a full budget of stops.
+    let started = std::time::Instant::now();
+    let mono = || started.elapsed().as_secs();
+
     if args.once {
-        print!("{}", run_once(&cfg, &mut gate, &mut budget));
+        print!(
+            "{}",
+            run_once(&cfg, &mut gate, &mut budget, mono(), Mode::Dry)
+        );
         return ExitCode::SUCCESS;
     }
 
@@ -280,7 +325,7 @@ fn main() -> ExitCode {
     let trigger = psi::Trigger::arm(
         PSI_MEMORY,
         Duration::from_millis(150),
-        Duration::from_secs(1),
+        Duration::from_secs(2),
     );
     match &trigger {
         Ok(_) => eprintln!("hostguard: armed PSI trigger on {PSI_MEMORY}"),
@@ -293,7 +338,7 @@ fn main() -> ExitCode {
     let wait_for = watchdog.map_or(interval, |w| interval.min(w));
 
     loop {
-        let metrics = run_once(&cfg, &mut gate, &mut budget);
+        let metrics = run_once(&cfg, &mut gate, &mut budget, mono(), Mode::Live);
         if let Err(e) = write_atomic(&cfg.metrics_path, &metrics, 0o644) {
             eprintln!("hostguard: cannot write metrics: {e}");
         }
@@ -309,5 +354,56 @@ fn main() -> ExitCode {
             },
             Err(_) => std::thread::sleep(wait_for),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gate_requires_consecutive_samples() {
+        let mut g = Gate::default();
+        assert_eq!(g.observe("k", true, 2), Gated::No);
+        assert_eq!(g.observe("k", true, 2), Gated::Newly);
+    }
+
+    #[test]
+    fn gate_reports_newly_once_then_still() {
+        let mut g = Gate::default();
+        g.observe("k", true, 1);
+        for _ in 0..5 {
+            assert_eq!(
+                g.observe("k", true, 1),
+                Gated::Still,
+                "a persisting condition must not re-report, or it writes one \
+                 incident file per poll and fills /var/log"
+            );
+        }
+    }
+
+    #[test]
+    fn gate_resets_when_the_condition_clears() {
+        let mut g = Gate::default();
+        g.observe("k", true, 2);
+        assert_eq!(g.observe("k", true, 2), Gated::Newly);
+        assert_eq!(g.observe("k", false, 2), Gated::No);
+        // A recurrence is a new incident and must report again.
+        assert_eq!(g.observe("k", true, 2), Gated::No);
+        assert_eq!(g.observe("k", true, 2), Gated::Newly);
+    }
+
+    #[test]
+    fn gate_keys_are_independent() {
+        let mut g = Gate::default();
+        assert_eq!(g.observe("a", true, 1), Gated::Newly);
+        assert_eq!(g.observe("b", true, 1), Gated::Newly);
+    }
+
+    #[test]
+    fn gated_active_covers_newly_and_still() {
+        assert!(Gated::Newly.active());
+        assert!(Gated::Still.active());
+        assert!(!Gated::No.active());
     }
 }
